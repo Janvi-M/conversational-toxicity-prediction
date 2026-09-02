@@ -1,28 +1,36 @@
-# Conversational Toxicity Prediction: A TGN-Augmented Transformer Approach
+# Conversational Toxicity Prediction
 
-A research proof-of-concept for analyzing and predicting the evolution of toxicity in Twitter/X conversations using **NLP, temporal graph modeling, transformer-based language generation, and toxicity classification**.
+A research proof-of-concept for analyzing toxicity in Twitter/X conversations using **NLP, temporal interaction graphs, transformer-based text generation, and toxicity classification**.
 
 **Presented at ICMLT 2026**
+
+> This repository is for academic experimentation. The results are preliminary and should not be treated as production-level moderation performance.
 
 ---
 
 ## Overview
 
-Online conversations can become increasingly toxic as they evolve, particularly around socially and politically sensitive events. Traditional toxicity classifiers generally evaluate individual posts in isolation and may miss the **temporal and conversational context** surrounding them.
+The project builds a pipeline that:
 
-This project explores a context-aware approach that combines:
+1. Collects Twitter/X posts and replies using Selenium.
+2. Cleans text and extracts sentiment, named entities, and BERT tokens.
+3. Computes heuristic toxicity/hate-related features and engagement-based virality scores.
+4. Detects unusual activity periods using rolling statistics over sentiment, toxicity, volume, and virality.
+5. Adds keyword-based contextual categories and optional external news context from The Guardian API.
+6. Builds a directed NetworkX graph representing reply and conversation-flow relationships over time.
+7. Generates text using GPT-2 or DistilGPT-2.
+8. Classifies generated and observed text using toxicity classifiers.
+9. Compares the experimental configurations using classification and error metrics.
 
-- Twitter/X conversation data and reply threads
-- NLP preprocessing and feature extraction
-- Temporal toxicity/spike analysis
-- Conversational graph construction using Temporal Graph Network (TGN) concepts
-- GPT-2-based future tweet generation
-- ETHOS-based toxicity classification
-- External news context using The Guardian Open Platform API
+### Implementation note
 
-The goal is to investigate whether **conversation structure and temporal context can complement text-based toxicity analysis when estimating the toxicity of future conversational turns**.
+The notebook is named `04_tgn_prediction.ipynb` and labels its main experiment **TGN + GPT-2 + ETHOS**.
 
-> **This repository is a research proof of concept. The reported results are preliminary and should not be interpreted as production-level moderation performance.**
+However, the current implementation does **not** contain a learned Temporal Graph Network architecture. It constructs a timestamped `NetworkX` interaction graph and computes graph-derived features.
+
+Similarly, the current GPT-2 generation function uses tweet text as its prompt. Learned graph embeddings are not directly passed into GPT-2.
+
+Therefore, this repository is best understood as a **temporal graph-based experimental pipeline**, rather than an end-to-end learned TGN model.
 
 ---
 
@@ -30,71 +38,70 @@ The goal is to investigate whether **conversation structure and temporal context
 
 ```text
 Twitter/X Data Collection
-          │
-          ▼
+          |
+          v
 NLP Preprocessing
-(cleaning • sentiment • NER • BERT tokenization)
-          │
-          ▼
+(cleaning + sentiment + NER + BERT tokenization)
+          |
+          v
 Toxicity / Spike Analysis
-(hate-score • sentiment • engagement • virality)
-          │
-          ▼
-External Context
-(The Guardian API + topic categories)
-          │
-          ▼
-Temporal Graph Construction
-(reply / mention / retweet relationships)
-          │
-          ▼
-Future Tweet Generation
+(heuristic hate score + engagement + virality)
+          |
+          v
+Context Enrichment
+(categories + optional Guardian news search)
+          |
+          v
+Temporal Interaction Graph
+(NetworkX: reply + conversation-flow edges)
+          |
+          v
+Text Generation
 (GPT-2 / DistilGPT-2)
-          │
-          ▼
+          |
+          v
 Toxicity Classification
-(ETHOS / RoBERTa)
-          │
-          ▼
-Comparison with Actual Future Tweets
+(RoBERTa toxicity classifier / DeHateBERT)
+          |
+          v
+Experimental Evaluation
 ```
 
 ---
 
-# Repository Structure
+## Repository Structure
 
-| File | Description |
-|------|-------------|
-| `01_data_collection.py` | Selenium-based Twitter/X scraper for topic and date-range searches, including reply collection |
-| `02_preprocessing_and_visulaization.ipynb` | Text preprocessing, sentiment analysis, NER, BERT tokenization, and exploratory visualization |
-| `03_spike_analysis.py` | Toxicity/spike analysis, contextual categorization, hate-score and virality feature engineering, and Guardian API integration |
-| `04_tgn_prediction.ipynb` | Temporal graph construction, future tweet generation, toxicity classification, and model evaluation |
-| `data/concatenated_dataset_final.csv` | Final concatenated dataset containing processed, spike-related, engagement, and graph-derived features |
+| File                                       | Purpose                                                                                                           |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `01_data_collection.py`                    | Selenium-based Twitter/X collection of top-level posts and replies                                                |
+| `02_preprocessing_and_visualization.ipynb` | Text cleaning, sentiment analysis, NER, BERT tokenization, and visualizations                                     |
+| `03_spike_analyser.py`                     | Heuristic toxicity scoring, virality scoring, spike detection, content categorization, and Guardian API context   |
+| `04_tgn_prediction.ipynb`                  | Temporal interaction graph construction, graph analysis, text generation, toxicity classification, and evaluation |
+| `data:/concatenated_dataset_final.csv`     | Processed project dataset currently stored in the repository                                                      |
+
 
 ---
 
-# Methodology
-
-## 1. Twitter/X Data Collection
+## 1. Data Collection
 
 ### `01_data_collection.py`
 
-The data collection pipeline uses **Selenium and Chrome WebDriver** to collect Twitter/X posts for a specified topic and date range.
+The scraper uses **Selenium + Chrome WebDriver** and supports:
 
-The scraper supports:
+* Topic-based search
+* Start/end date filtering
+* Optional English-only filtering
+* A limit on top-level posts
+* A limit on replies collected per post
+* Headless browser execution
+* Tweet/reply metadata and engagement metrics
 
-- Topic-based search
-- Date-range filtering
-- English-language filtering
-- Configurable number of top-level posts
-- Configurable number of replies per post
-- Headless browser execution
-- Reply-thread collection
+Collected information includes tweet IDs, usernames, conversation IDs, parent tweet IDs, timestamps, text, likes, retweets/shares, and reply counts.
 
 Example:
 
 ```bash
-python data_scraping_code.py \
+python 01_data_collection.py \
     --topic "Black Lives Matter" \
     --start_date 2020-06-01 \
     --end_date 2020-06-30 \
@@ -105,312 +112,240 @@ python data_scraping_code.py \
     --english_only
 ```
 
-The scraper stores information such as:
-
-- Tweet ID
-- Author
-- Conversation ID
-- Parent/replied-to tweet
-- Timestamp
-- Text
-- Likes
-- Retweets/shares
-- Reply count
+**Note:** The scraper depends on Twitter/X page structure and Selenium selectors, so it is experimental and may require changes if the platform UI changes.
 
 ---
 
-# 2. NLP Preprocessing
+## 2. NLP Preprocessing
 
-### `02_preprocessing_and_visulaization.ipynb`
+### `02_preprocessing_and_visualization.ipynb`
 
-Raw Twitter/X text is transformed into structured features before graph construction and prediction.
+The notebook performs:
 
-### Text preprocessing
+* Lowercasing
+* URL removal
+* Special-character removal
+* Stopword removal
+* Duplicate removal
+* Empty-text filtering
+* Sentiment scoring using TextBlob polarity
+* Named entity extraction using spaCy `en_core_web_sm`
+* BERT tokenization using `bert-base-uncased`
+* Exploratory visualizations
 
-The pipeline performs:
-
-- Lowercasing
-- URL removal
-- Special-character removal
-- Stopword removal
-- Duplicate removal
-- Empty-text filtering
-
-### NLP features
-
-The project extracts:
-
-- **Sentiment:** TextBlob polarity scores
-- **Named entities:** spaCy `en_core_web_sm`
-- **Token representations:** BERT tokenizer using `bert-base-uncased`
-
-The processed data is stored in CSV format for subsequent analysis.
+The processed data is saved as CSV for subsequent analysis.
 
 ---
 
-# 3. Toxicity and Spike Analysis
+## 3. Toxicity and Spike Analysis
 
-### `03_spike_analysis.py`
+### `03_spike_analyser.py`
 
-The `ImprovedHybridSpikeAnalyzer` enriches the dataset with toxicity, engagement, contextual, and temporal features.
+`ImprovedHybridSpikeAnalyzer` adds heuristic toxicity, engagement, contextual, and temporal features.
 
-## Hate/Toxicity Signal
+### Heuristic toxicity / hate score
 
-The spike analyzer computes an **enhanced hate score** using multiple signals, including:
+The analyzer combines:
 
-- Hate/toxicity-related keywords
-- Toxicity amplifiers
-- Emotional intensifiers
-- Capitalization intensity
-- Exclamation-mark intensity
+* Hate/toxicity-related keyword matches
+* Toxicity amplifiers
+* Emotional intensifiers
+* Capitalization intensity
+* Exclamation-mark intensity
 
-The resulting score is a **heuristic/model-derived signal**, not a human-annotated ground-truth hate-speech label.
+The resulting `enhanced_hate_score` is a **heuristic signal**, not a human-annotated toxicity label.
 
-## Virality
+### Virality score
 
-A normalized virality score is calculated from engagement:
+The implementation calculates:
 
 ```text
-Virality ≈ likes + 3 × shares + 2 × comments
+likes + 3 × shares + 2 × comments
 ```
 
-The score is normalized to a 0–1 range.
+and normalizes it by dividing by 1000 and clipping the result to the range 0–1.
 
-## Spike Detection
+### Spike detection
 
-Posts are aggregated over time and analyzed using multiple signals:
+Posts are aggregated by day and analyzed using rolling statistics over:
 
-- Sentiment
-- Enhanced hate score
-- Post volume
-- Virality
-- Engagement
+* Sentiment
+* Enhanced hate score
+* Post volume
+* Virality
 
-The implementation compares these signals against rolling historical statistics to identify periods exhibiting unusually high activity or toxicity.
+A day is marked as a spike when at least one of the implemented spike conditions is triggered.
 
-## Content Categorization
+### Context categories
 
-The analyzer categorizes posts using contextual keyword groups, including:
+Posts are assigned keyword-based categories including:
 
-- Politics
-- Immigration
-- Protest
-- Terrorism
-- Crime
-- Economy
-- International events
-- Social issues
+* Politics
+* Immigration
+* Protest
+* Terrorism
+* Crime
+* Economy
+* International
+* Social
+* General
 
-## External Context
+### External context
 
-Detected spike periods can be enriched using **The Guardian Open Platform API** to examine relevant external news context.
+The analyzer can use **The Guardian Open Platform API** to retrieve contextual news information around detected spike periods.
 
-This provides contextual information around detected activity; it should not be interpreted as proof that a particular news event caused a spike.
+This provides contextual information; it does **not establish that a particular news event caused a spike**.
 
 ---
 
-# 4. Temporal Graph Modeling
+## 4. Temporal Interaction Graph
 
 ### `04_tgn_prediction.ipynb`
 
-The project represents Twitter/X conversations as directed interaction graphs.
+The notebook constructs a directed **NetworkX** graph from the conversation data.
 
-### Graph representation
+### Nodes
 
-**Nodes**
+Nodes represent tweets/replies and store information such as:
 
-Each node represents a tweet/reply and can contain features such as:
+* Tweet text
+* Timestamp
+* Speaker
+* Sentiment
+* Toxicity/hate-related features
+* Engagement
+* Parent count
+* Conversation centrality
+* Amplifier/test indicators
 
-- Sentiment
-- Engagement
-- Hate intensity
-- Temporal information
-- Centrality-related features
+### Edges
 
-**Edges**
+The implementation creates two relationship types:
 
-Edges capture conversational relationships such as:
+* `reply` — connects a reply to its parent tweet
+* `conversation_flow` — connects consecutive tweets within a conversation
 
-- Replies
-- Mentions
-- Retweets
-- Conversation connections
+Edges also store temporal and derived values such as hate correlation, hate propagation, and influence-related quantities.
 
-This representation allows the project to incorporate **conversation structure alongside textual features**.
-
----
-
-# 5. Future Tweet Generation
-
-The prediction pipeline uses transformer-based language generation to simulate possible future conversational turns.
-
-### Main approach
-
-**GPT-2 + TGN-derived contextual information**
-
-Historical conversation context is used to generate a synthetic continuation representing a possible future tweet.
-
-### Baseline
-
-**DistilGPT-2 + ETHOS**
-
-The baseline uses DistilGPT-2 without the additional TGN context.
-
-The generated tweet is subsequently passed through the toxicity classifier so that its predicted toxicity can be compared with the toxicity of an actual future tweet.
+The notebook also performs a time-based train/test split and analyzes graph properties such as conversation structure and centrality.
 
 ---
 
-# 6. Toxicity Classification
+## 5. Text Generation and Toxicity Classification
 
-The project uses:
+The notebook loads:
 
-**`s-nlp/roberta_toxicity_classifier`**
+* **GPT-2** (`gpt2`)
+* **DistilGPT-2** (`distilgpt2`)
+* **RoBERTa toxicity classifier** (`s-nlp/roberta_toxicity_classifier`)
+* **DeHateBERT** (`Hate-speech-CNERG/dehatebert-mono-english`)
 
-to estimate toxicity for:
+For each evaluated node, the current pipeline uses the tweet text as the generation prompt, generates a continuation, and then classifies generated and observed text.
 
-1. Generated future tweets
-2. Actual future tweets from later points in the conversation
+The notebook evaluates three configurations:
 
-The comparison provides an experimental measure of how well the generated continuation reflects the toxicity of the observed future conversation.
+1. `TGN+GPT2+ETHOS` — the notebook's main experimental configuration.
+2. `DistilGPT2 + ETHOS` — a simpler generation baseline.
+3. An alternative classifier using DeHateBERT.
 
----
-
-# Experimental Results
-
-The repository contains a **more recent experimental run** than the results reported in the original paper.
-
-The current results below therefore represent the **updated repository experiment**, while the paper contains results from an earlier run.
-
-### Updated Results
-
-| Model | MAE ↓ | RMSE ↓ | Accuracy ↑ | F1 ↑ |
-|-------|------:|--------:|-----------:|-----:|
-| **TGN + GPT-2 + ETHOS** | 0.234 | 0.484 | 76.6% | **0.750** |
-| DistilGPT-2 + ETHOS | 0.234 | 0.484 | 76.6% | 0.683 |
-| GPT-2 + DeHateBERT | **0.128** | **0.357** | **87.2%** | **0.847** |
-
-> **Important:** These results are from an updated experimental run and are not intended to represent a definitive benchmark. The dataset and evaluation set are relatively small, and the project is primarily intended to demonstrate the feasibility of combining temporal graph context with transformer-based toxicity analysis.
-
-### Interpretation
-
-The experiments show that transformer-based toxicity prediction can be combined with conversational graph features in a single research pipeline.
-
-However, the results **do not establish that TGN consistently outperforms simpler approaches**. Performance varies across the evaluated configurations, and the limited dataset prevents statistically strong conclusions.
-
-The main contribution of this project is therefore the **architecture and experimental framework for context-aware toxicity analysis**, rather than claiming state-of-the-art predictive performance.
+The first configuration should be understood as the project's **graph-based experimental pipeline label**, not as a claim that a learned TGN neural architecture is being trained.
 
 ---
 
-# Dataset
+## Experimental Results
 
-The repository contains a final concatenated dataset with approximately **3,800 Twitter/X posts and replies** collected from politically and socially sensitive discussions.
+The following results are from the current notebook run on **94 test nodes**.
 
-The dataset contains features spanning:
+| Model configuration               |   MAE |  RMSE | Accuracy |    F1 |
+| --------------------------------- | ----: | ----: | -------: | ----: |
+| TGN+GPT2+ETHOS                    | 0.234 | 0.484 |    76.6% | 0.750 |
+| DistilGPT2 + ETHOS                | 0.234 | 0.484 |    76.6% | 0.683 |
+| DeHateBERT alternative classifier | 0.128 | 0.357 |    87.2% | 0.847 |
 
-### Tweet-level information
+These results are experimental and should not be interpreted as a definitive benchmark. The evaluation set is relatively small.
 
-- `id`
-- `conversation_id`
-- `reply_to_id`
-- `reply_to_nm`
-- `speaker_nm`
-- `timestamp`
-- `text`
-
-### Engagement
-
-- `likes`
-- `shares`
-- `num_comments`
-
-### NLP
-
-- `cleaned_text`
-- `sentiment`
-- `named_entities`
-- `tokens`
-
-### Toxicity and propagation
-
-- `enhanced_hate_score`
-- `hate_intensity`
-- `virality_score`
-
-### Temporal/contextual features
-
-- `spike_day`
-- `spike_cause`
-- `spike_external_cause`
-- `content_category`
-- `contextual_relevance`
-
-### Graph features
-
-- `user_influence`
-- `conversation_centrality`
-- `reply_chain_depth`
-
-> The repository dataset represents the broader project artifact. The experimental dataset size used in the earlier paper evaluation was smaller; therefore, repository dataset size and paper evaluation size should not be treated as interchangeable.
+The notebook also performs statistical comparisons between the experimental configurations.
 
 ---
 
-# Technologies
+## Dataset
 
-### Data Collection
+The repository contains a processed dataset with approximately **3,800 Twitter/X posts and replies**.
 
-- Python
-- Selenium
-- Chrome WebDriver
-- WebDriver Manager
-- BeautifulSoup
-- Requests
-- `langdetect`
+The dataset contains fields covering:
 
-### NLP
+* Tweet and conversation IDs
+* Parent/reply relationships
+* Timestamps and text
+* Likes, shares, and comments
+* Cleaned text
+* Sentiment
+* Named entities
+* BERT token IDs
+* Enhanced hate score
+* Hate intensity
+* Virality score
+* Spike/context features
+* User influence
+* Conversation centrality
+* Reply-chain information
 
-- spaCy
-- TextBlob
-- NLTK
-- BERT tokenizer
-- Transformers
-- PyTorch
-
-### Generative AI
-
-- GPT-2
-- DistilGPT-2
-
-### Toxicity Detection
-
-- RoBERTa-based toxicity classifier
-- ETHOS-oriented toxicity analysis
-- DeHateBERT
-
-### Graph Modeling
-
-- NetworkX
-- Temporal Graph Network concepts
-- Reply/conversation graphs
-- Graph centrality features
-
-### Data Analysis & Visualization
-
-- Pandas
-- NumPy
-- Scikit-learn
-- Matplotlib
-- Seaborn
-- WordCloud
-
-### External Data
-
-- The Guardian Open Platform API
+The repository dataset and the smaller evaluation set used in the notebook should not be treated as the same dataset.
 
 ---
 
-# Installation
+## Technologies
 
-Install the required Python packages:
+**Data Collection**
+
+* Python
+* Selenium
+* Chrome WebDriver
+* WebDriver Manager
+* `langdetect`
+
+**NLP**
+
+* spaCy
+* TextBlob
+* NLTK
+* BERT tokenizer
+* Transformers
+* PyTorch
+
+**Text Generation**
+
+* GPT-2
+* DistilGPT-2
+
+**Toxicity Classification**
+
+* RoBERTa-based toxicity classifier
+* DeHateBERT
+
+**Graphs**
+
+* NetworkX
+
+**Data Analysis**
+
+* Pandas
+* NumPy
+* SciPy
+* scikit-learn
+* Matplotlib
+* Seaborn
+* WordCloud
+
+**External Context**
+
+* The Guardian Open Platform API
+
+---
+
+## Installation
+
+Install the main dependencies:
 
 ```bash
 pip install pandas numpy scipy scikit-learn \
@@ -426,169 +361,95 @@ Download the spaCy English model:
 python -m spacy download en_core_web_sm
 ```
 
-Download the required NLTK resources:
-
-```python
-import nltk
-
-nltk.download("punkt")
-nltk.download("stopwords")
-nltk.download("averaged_perceptron_tagger")
-nltk.download("maxent_ne_chunker")
-nltk.download("words")
-```
+The NLTK-based spike analyzer downloads its required NLTK resources when they are missing.
 
 ---
 
-# Running the Project
+## Running the Project
 
-## 1. Collect Twitter/X Data
+### 1. Collect data
 
-Run:
+Run `01_data_collection.py` with the topic/date arguments shown above.
 
-```bash
-python data_scraping_code.py \
-    --topic "Black Lives Matter" \
-    --start_date 2020-06-01 \
-    --end_date 2020-06-30 \
-    --output tweets.csv \
-    --limit 200 \
-    --replies_limit 50 \
-    --headless \
-    --english_only
-```
-
-## 2. Preprocess the Data
+### 2. Preprocess data
 
 Open:
 
 ```text
-pre-processing_and_visulaization.ipynb
+02_preprocessing_and_visualization.ipynb
 ```
 
-Run the notebook to generate:
+and run the notebook cells.
 
-- Cleaned text
-- Sentiment scores
-- Named entities
-- BERT tokens
-- Exploratory visualizations
-
-## 3. Run Spike Analysis
+### 3. Run spike analysis
 
 Use:
 
 ```text
-Spike_Tgn.py
+03_spike_analyser.py
 ```
 
-to generate toxicity, virality, contextual, and temporal features.
+with the appropriate input dataset/API configuration.
 
-## 4. Run Graph Construction and Prediction
+### 4. Run graph and prediction experiments
 
 Open:
 
 ```text
-Tgn+Pred.ipynb
+04_tgn_prediction.ipynb
 ```
 
-The notebook performs the graph-based modeling and future toxicity prediction experiments.
+and run the notebook cells.
+
+> The notebooks contain project-specific input/output filenames from the original experiments, so paths may need to be adjusted when reproducing the pipeline from scratch.
 
 ---
 
-# Limitations
+## Limitations
 
-This project is intentionally presented as a **proof of concept** rather than a production-ready moderation system.
-
-### Limited Dataset
-
-The experimental dataset is relatively small, limiting statistical confidence and generalization across different communities, topics, languages, and conversational styles.
-
-### Temporal Evaluation
-
-Although the architecture incorporates temporal graph modeling, the current evaluation does not provide a comprehensive large-scale assessment of temporal forecasting performance.
-
-### Heuristic Toxicity Signals
-
-Some spike-analysis features are derived from keyword and rule-based signals rather than human-annotated moderation labels.
-
-### Model-Generated Text
-
-GPT-2 generates synthetic future conversational turns. Generated text may not accurately reproduce the linguistic or semantic characteristics of an actual future response.
-
-### Interpretability
-
-The current implementation exposes graph-derived attributes such as centrality and toxicity scores, but does not provide a dedicated moderator-facing explanation or visualization system.
-
-### Real-Time Deployment
-
-The sequential pipeline involving graph construction, text generation, and toxicity classification introduces computational latency and is not designed for real-time production moderation.
-
-### Generalization
-
-The dataset primarily represents a limited set of politically and socially sensitive conversations. Larger and more diverse datasets are required to evaluate generalization.
-
-### Platform Dependency
-
-The data collection pipeline depends on Twitter/X page structure and Selenium-based scraping, which may break when platform interfaces or access mechanisms change.
+* The toxicity/hate score is heuristic and is not a human-annotated moderation label.
+* The dataset and evaluation set are relatively small.
+* GPT-2 generated text may not represent an actual future conversational response.
+* The graph implementation uses NetworkX and engineered graph features rather than a learned end-to-end TGN architecture.
+* The current generation function uses tweet text as the prompt rather than injecting learned graph embeddings into GPT-2.
+* The Twitter/X scraper depends on platform-specific Selenium selectors.
+* External news retrieval provides context but does not prove causality.
+* The project is not designed for real-time or production moderation.
 
 ---
 
-# Future Work
+## Future Work
 
-Potential extensions include:
+Possible extensions include:
 
-- Evaluation on substantially larger datasets
-- More rigorous temporal forecasting experiments
-- Human-annotated toxicity labels
-- Multilingual toxicity analysis
-- More sophisticated temporal graph architectures
-- Explainable graph-based predictions
-- Moderator-facing visualizations
-- Improved external-event attribution
-- Real-time or streaming graph processing
-- Evaluation across a wider range of communities and conversational domains
+* Training a genuine temporal graph neural network/TGN architecture
+* Feeding learned graph representations into the prediction or generation model
+* Larger and more diverse datasets
+* Human-annotated toxicity labels
+* More rigorous temporal forecasting evaluation
+* Multilingual toxicity analysis
+* Explainable graph-based predictions
+* Real-time/streaming graph processing
+* Better external-event attribution
 
 ---
 
-# Research Context
+## Research Context
 
 This repository accompanies the research work:
 
 **"Conversational Toxicity Prediction: A TGN-Augmented Transformer Approach"**
 
-The work explores the combination of:
+Presented at **ICMLT 2026**.
 
-```text
-Language
-   +
-Conversation Structure
-   +
-Temporal Information
-   +
-External Context
-   ↓
-Context-Aware Toxicity Analysis
-```
-
-The project is intended to demonstrate the **feasibility of incorporating temporal and conversational structure into transformer-based toxicity analysis**, and to provide a modular foundation for future research on larger datasets.
+The repository contains an updated experimental run, so its reported metrics may differ from those in the original paper.
 
 ---
 
-# Disclaimer
+## Disclaimer
 
 This repository is intended for **academic research and experimentation only**.
 
-The toxicity and hate-intensity scores produced by the system are model-derived or heuristic signals and should not be treated as definitive moderation labels.
+The toxicity and hate-intensity scores produced by the system are heuristic or model-derived signals and should not be treated as definitive moderation labels.
 
-The system is **not intended for automated enforcement, high-impact decision-making, or production moderation** without substantially larger datasets, stronger validation, human evaluation, and appropriate safeguards.
-
----
-
-## Publication
-
-**Conversational Toxicity Prediction: A TGN-Augmented Transformer Approach**
-
-Presented at **ICMLT 2026**.
-
-The repository contains an updated experimental run; therefore, the performance figures shown above may differ from those reported in the original paper.
+The system is **not intended for automated enforcement or production moderation** without substantially larger datasets, stronger validation, human evaluation, and appropriate safeguards.
